@@ -43,14 +43,18 @@ while True:
     directions = [Direction.North, Direction.South, Direction.East, Direction.West, Direction.Still]
 
     for ship in me.get_ships():
-        # 
+        if ship.id in ship_status:
+            logging.info("Ship " + str(ship.id) + " - " + str(ship_status[ship.id]))
+
         if ship.id not in ship_status:
             ship_status[ship.id] = "exploring"
+
+        elif game.turn_number > constants.MAX_TURNS - (constants.MAX_TURNS / 20):
+            ship_status[ship.id] = "shutdown"
 
         elif ship.halite_amount >= 3 * (constants.MAX_HALITE / 4):
             logging.info("Ship {} will return to base.".format(ship.id))
             ship_status[ship.id] = "returning"
-
         
         if ship_status[ship.id] == "returning":
             logging.info("Ship {} returning...".format(ship.id))
@@ -85,18 +89,38 @@ while True:
             move_choice = max(halite_dict, key=halite_dict.get)
             position_choice = position_dict[move_choice]
 
-            if position_choice not in next_positions and game_map[position_choice].is_occupied == False:
+            if position_choice not in next_positions and game_map[position_choice].is_occupied == False and (ship.halite_amount >= game_map[ship.position].halite_amount / 10):
                 logging.info("Ship {} moving to {}.".format(ship.id, move_choice))
                 command_queue.append(ship.move(move_choice))
                 next_positions.append(position_choice)
-            else:                
+            else:
+                command_queue.append(ship.stay_still())
                 next_positions.append(ship.position)
             continue
 
+        elif ship_status[ship.id] == "shutdown":
+            # If the ship status is shutdown, we just want to get it back
+            # to the shipyard. If the ship is about to move to the shipyard
+            # but it's already occupied, move anyway. The halite resulting
+            # of the collision should drop in the shipyard anyway.
+            move = game_map.naive_navigate(ship, me.shipyard.position)
+            logging.info(ship.position.directional_offset(move))
+            if ship.position.directional_offset(move) not in next_positions:
+                next_positions.append(ship.position.directional_offset(move))
+                command_queue.append(ship.move(move))
+            elif ship.position.directional_offset(move) in next_positions and ship.position.directional_offset(move) == me.shipyard.position:
+                command_queue.append(ship.move(move))
+            else:
+                next_positions.append(ship.position)
+            continue
 
-    if game.turn_number <= 50 and me.halite_amount >= constants.SHIP_COST and not game_map[me.shipyard].is_occupied:
+    ##
+    ## TODO: stop making ships after a certain round.
+    ## Make any round related behaviour account for game size.
+    ##
+    if game.turn_number <= constants.MAX_TURNS / 4 and me.halite_amount >= constants.SHIP_COST and not game_map[me.shipyard].is_occupied:
         command_queue.append(me.shipyard.spawn())
-    elif game.turn_number > 100 and me.halite_amount >= (constants.SHIP_COST * 5) and not game_map[me.shipyard].is_occupied:
+    elif (game.turn_number > constants.MAX_TURNS and game.turn_number < constants.MAX_TURNS - (constants.MAX_TURNS / 10)) and me.halite_amount >= (constants.SHIP_COST * 3) and not game_map[me.shipyard].is_occupied:
         command_queue.append(me.shipyard.spawn())
 
     # Send your moves back to the game environment, ending this turn.
